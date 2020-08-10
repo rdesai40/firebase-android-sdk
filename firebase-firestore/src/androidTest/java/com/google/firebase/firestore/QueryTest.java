@@ -20,6 +20,7 @@ import static com.google.firebase.firestore.testutil.IntegrationTestUtil.testCol
 import static com.google.firebase.firestore.testutil.IntegrationTestUtil.testCollectionWithDocs;
 import static com.google.firebase.firestore.testutil.IntegrationTestUtil.testFirestore;
 import static com.google.firebase.firestore.testutil.IntegrationTestUtil.waitFor;
+import static com.google.firebase.firestore.testutil.TestUtil.assertArrayEquals;
 import static com.google.firebase.firestore.testutil.TestUtil.expectError;
 import static com.google.firebase.firestore.testutil.TestUtil.map;
 import static java.util.Arrays.asList;
@@ -35,6 +36,7 @@ import com.google.firebase.firestore.Query.Direction;
 import com.google.firebase.firestore.testutil.EventAccumulator;
 import com.google.firebase.firestore.testutil.IntegrationTestUtil;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -484,6 +486,69 @@ public class QueryTest {
   }
 
   @Test
+  public void testQueriesCanUseNotEqualFilters() {
+    Map<String, Object> docA = map("zip", 98101L);
+    Map<String, Object> docB = map("zip", 91102L);
+    Map<String, Object> docC = map("zip", "98101");
+    Map<String, Object> docD = map("zip", asList(98101L));
+    Map<String, Object> docE = map("zip", asList("98101", map("zip", 98101L)));
+    Map<String, Object> docF = map("zip", map("code", 500L));
+    Map<String, Object> docG = map("zip", asList(98101L, 98102L));
+    Map<String, Object> docH = map("code", 500L);
+    Map<String, Object> docI = map("zip", null);
+    Map<String, Object> docJ = map("zip", Double.NaN);
+
+    Map<String, Map<String, Object>> allDocs =
+        map(
+            "a", docA, "b", docB, "c", docC, "d", docD, "e", docE, "f", docF, "g", docG, "h", docH,
+            "i", docI, "j", docJ);
+    CollectionReference collection = testCollectionWithDocs(allDocs);
+
+    // Search for zips not matching 98101.
+    Map<String, Map<String, Object>> expectedDocsMap = new HashMap<>();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("a");
+    expectedDocsMap.remove("h");
+    expectedDocsMap.remove("i");
+    List<Map<String, Object>> expectedDocs = new ArrayList<>();
+    expectedDocs.addAll(expectedDocsMap.values());
+
+    QuerySnapshot snapshot = waitFor(collection.whereNotEqualTo("zip", 98101L).get());
+    assertArrayEquals(expectedDocs, querySnapshotToValues(snapshot));
+
+    // With objects.
+    expectedDocsMap.clear();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("f");
+    expectedDocsMap.remove("h");
+    expectedDocsMap.remove("i");
+    expectedDocs.clear();
+    expectedDocs.addAll(expectedDocsMap.values());
+    snapshot = waitFor(collection.whereNotEqualTo("zip", map("code", 500)).get());
+    assertArrayEquals(expectedDocs, querySnapshotToValues(snapshot));
+
+    // With Null.
+    expectedDocsMap.clear();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("h");
+    expectedDocsMap.remove("i");
+    expectedDocs.clear();
+    snapshot = waitFor(collection.whereNotEqualTo("key", null).get());
+    assertArrayEquals(expectedDocs, querySnapshotToValues(snapshot));
+
+    // With NaN.
+    expectedDocsMap.clear();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("h");
+    expectedDocsMap.remove("i");
+    expectedDocsMap.remove("j");
+    expectedDocs.clear();
+    expectedDocs.addAll(expectedDocsMap.values());
+    snapshot = waitFor(collection.whereNotEqualTo("zip", Double.NaN).get());
+    assertArrayEquals(expectedDocs, querySnapshotToValues(snapshot));
+  }
+
+  @Test
   public void testQueriesCanUseArrayContainsFilters() {
     Map<String, Object> docA = map("array", asList(42L));
     Map<String, Object> docB = map("array", asList("a", 42L, "c"));
@@ -539,6 +604,95 @@ public class QueryTest {
     QuerySnapshot docs =
         waitFor(collection.whereIn(FieldPath.documentId(), asList("aa", "ab")).get());
     assertEquals(asList(docA, docB), querySnapshotToValues(docs));
+  }
+
+  @Test
+  public void testQueriesCanUseNotInFilters() {
+    Map<String, Object> docA = map("zip", 98101L);
+    Map<String, Object> docB = map("zip", 91102L);
+    Map<String, Object> docC = map("zip", 98103L);
+    Map<String, Object> docD = map("zip", asList(98101L));
+    Map<String, Object> docE = map("zip", asList("98101", map("zip", 98101L)));
+    Map<String, Object> docF = map("zip", map("code", 500L));
+    Map<String, Object> docG = map("zip", asList(98101L, 98102L));
+    Map<String, Object> docH = map("code", 500L);
+    Map<String, Object> docI = map("zip", null);
+    Map<String, Object> docJ = map("zip", Double.NaN);
+
+    Map<String, Map<String, Object>> allDocs =
+        map(
+            "a", docA, "b", docB, "c", docC, "d", docD, "e", docE, "f", docF, "g", docG, "h", docH,
+            "i", docI, "j", docJ);
+    CollectionReference collection = testCollectionWithDocs(allDocs);
+
+    // Search for zips not matching 98101, 98103, or [98101, 98102].
+    Map<String, Map<String, Object>> expectedDocsMap = new HashMap<>();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("a");
+    expectedDocsMap.remove("c");
+    expectedDocsMap.remove("g");
+    expectedDocsMap.remove("h");
+    List<Map<String, Object>> expectedDocs = new ArrayList<>();
+    expectedDocs.addAll(expectedDocsMap.values());
+
+    QuerySnapshot snapshot =
+        waitFor(collection.whereNotIn("zip", asList(98101L, 98103L, asList(98101L, 98102L))).get());
+    assertEquals(expectedDocs, querySnapshotToValues(snapshot));
+
+    // With objects.
+    expectedDocsMap.clear();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("f");
+    expectedDocsMap.remove("h");
+    expectedDocs.clear();
+    expectedDocs.addAll(expectedDocsMap.values());
+    snapshot = waitFor(collection.whereNotIn("zip", asList(map("code", 500L))).get());
+    assertEquals(expectedDocs, querySnapshotToValues(snapshot));
+
+    // With Null.
+    List<Object> nullArray = new ArrayList<>();
+    nullArray.add(null);
+    snapshot = waitFor(collection.whereNotIn("key", nullArray).get());
+    assertEquals(new ArrayList<>(), querySnapshotToValues(snapshot));
+
+    // With NaN.
+    expectedDocsMap.clear();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("h");
+    expectedDocsMap.remove("j");
+    expectedDocs.clear();
+    expectedDocs.addAll(expectedDocsMap.values());
+    snapshot = waitFor(collection.whereNotIn("zip", asList(Double.NaN)).get());
+    assertEquals(expectedDocs, querySnapshotToValues(snapshot));
+
+    // With NaN and a number.
+    expectedDocsMap.clear();
+    expectedDocsMap.putAll(allDocs);
+    expectedDocsMap.remove("a");
+    expectedDocsMap.remove("h");
+    expectedDocsMap.remove("j");
+    expectedDocs.clear();
+    expectedDocs.addAll(expectedDocsMap.values());
+    snapshot = waitFor(collection.whereNotIn("zip", asList(Float.NaN, 98101L)).get());
+    assertEquals(expectedDocs, querySnapshotToValues(snapshot));
+  }
+
+  @Test
+  public void testQueriesCanUseNotInFiltersWithDocIds() {
+    Map<String, String> docA = map("key", "aa");
+    Map<String, String> docB = map("key", "ab");
+    Map<String, String> docC = map("key", "ba");
+    Map<String, String> docD = map("key", "bb");
+    Map<String, Map<String, Object>> testDocs =
+        map(
+            "aa", docA,
+            "ab", docB,
+            "ba", docC,
+            "bb", docD);
+    CollectionReference collection = testCollectionWithDocs(testDocs);
+    QuerySnapshot docs =
+        waitFor(collection.whereNotIn(FieldPath.documentId(), asList("aa", "ab")).get());
+    assertEquals(asList(docC, docD), querySnapshotToValues(docs));
   }
 
   @Test
